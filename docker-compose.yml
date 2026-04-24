@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: phishing_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/logs:/app/logs
+    networks:
+      - security_net
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: phishing_frontend
+    ports:
+      - "8501:80"
+    depends_on:
+      - backend
+    networks:
+      - security_net
+
+networks:
+  security_net:
+    driver: bridge

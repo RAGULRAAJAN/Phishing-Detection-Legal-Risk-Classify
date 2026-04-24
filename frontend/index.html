@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOC Triage | Phishing & Legal Risk</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+</head>
+<body>
+  
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo">
+        <span class="icon">🛡️</span>
+        <h1>SOC Triage</h1>
+      </div>
+      <p class="subtitle">Phishing Detection & Legal Risk Analyzer</p>
+    </header>
+
+    <main class="dashboard">
+      <!-- Input Section -->
+      <section class="panel input-panel glass">
+        <h2>Payload Entry</h2>
+        
+        <div id="drop-zone" class="drop-zone">
+          <span class="drop-icon">📁</span>
+          <p>Drag and drop a .eml or .txt file here, or click to browse</p>
+          <input type="file" id="file-input" accept=".eml,.txt" hidden>
+        </div>
+
+        <textarea id="email-text" placeholder="Or paste raw email headers and body here..."></textarea>
+        
+        <button id="analyze-btn" class="cyber-btn">Run Threat Analysis</button>
+      </section>
+
+      <!-- Results Section -->
+      <section id="results-panel" class="panel results-panel glass hidden">
+        <h2>Analysis Results</h2>
+        
+        <div class="metrics-grid">
+          <!-- Threat Score -->
+          <div class="metric-card">
+            <h3>Threat Score</h3>
+            <div id="threat-score" class="score-value">--%</div>
+            <div id="threat-delta" class="score-delta">Awaiting</div>
+          </div>
+          
+          <!-- Classification -->
+          <div class="metric-card">
+            <h3>Classification</h3>
+            <div id="classification" class="score-value status-text">--</div>
+          </div>
+
+          <!-- Legal Triggers -->
+          <div class="metric-card">
+            <h3>Legal Frameworks Triggered</h3>
+            <div id="legal-count" class="score-value">0</div>
+          </div>
+        </div>
+
+        <div class="tags-section">
+          <h3>Risk Indicators</h3>
+          <div id="risk-tags" class="tags-container">
+            <span class="info-text">No explicit risk indicators found based on the rules engine.</span>
+          </div>
+        </div>
+
+        <div class="legal-section">
+          <h3>Legal Mapping & Compliance Risks</h3>
+          <div id="legal-violations" class="violations-container">
+            <div class="success-box">No specific legal compliance risks detected in this payload.</div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
