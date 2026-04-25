@@ -8,7 +8,11 @@
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="theme-cyber">
+  <button id="theme-toggle" class="theme-toggle-fab" aria-label="Toggle theme">
+    <span class="sun-icon">☀️</span>
+    <span class="moon-icon">🌙</span>
+  </button>
   
   <div class="app-container">
     <header class="app-header">
@@ -16,23 +20,28 @@
         <span class="icon">🛡️</span>
         <h1>SOC Triage</h1>
       </div>
-      <p class="subtitle">Phishing Detection & Legal Risk Analyzer</p>
     </header>
+    <p class="subtitle">Phishing Detection & Legal Risk Analyzer</p>
 
     <main class="dashboard">
       <!-- Input Section -->
       <section class="panel input-panel glass">
-        <h2>Payload Entry</h2>
+        <h2>Payload Entry <span class="badge">Batch Supported</span></h2>
         
         <div id="drop-zone" class="drop-zone">
           <span class="drop-icon">📁</span>
-          <p>Drag and drop a .eml or .txt file here, or click to browse</p>
-          <input type="file" id="file-input" accept=".eml,.txt" hidden>
+          <p>Drag and drop multiple .eml or .txt files here, or click to browse</p>
+          <input type="file" id="file-input" accept=".eml,.txt" multiple hidden>
         </div>
+
+        <div id="batch-status" class="batch-status hidden"></div>
 
         <textarea id="email-text" placeholder="Or paste raw email headers and body here..."></textarea>
         
-        <button id="analyze-btn" class="cyber-btn">Run Threat Analysis</button>
+        <div class="action-bar">
+          <button id="analyze-btn" class="cyber-btn">Run Threat Analysis</button>
+          <button id="email-preview-btn" class="cyber-btn variant-safe hidden">Safe Preview Email</button>
+        </div>
       </section>
 
       <!-- Results Section -->
@@ -61,10 +70,28 @@
         </div>
 
         <div class="tags-section">
-          <h3>Risk Indicators</h3>
+          <h3>Risk Indicators & Threat Intel</h3>
           <div id="risk-tags" class="tags-container">
             <span class="info-text">No explicit risk indicators found based on the rules engine.</span>
           </div>
+        </div>
+
+        <!-- Explainable AI (XAI) Section -->
+        <div class="xai-section">
+          <h3>ML Feature Importance (Why was this flagged?)</h3>
+          <div id="xai-container" class="xai-bars">
+            <span class="info-text">No ML explanation data available.</span>
+          </div>
+        </div>
+
+        <!-- Link Preview Section -->
+        <div class="link-preview-section">
+          <h3>Sandboxed Link Previews</h3>
+          <div class="input-group">
+            <input type="text" id="link-url" placeholder="Enter suspicious URL (e.g. evil-phishing-domain.com)" />
+            <button id="preview-btn" class="cyber-btn sm">Safe Preview</button>
+          </div>
+          <div id="link-preview-result" class="preview-card hidden"></div>
         </div>
 
         <div class="legal-section">
@@ -73,8 +100,40 @@
             <div class="success-box">No specific legal compliance risks detected in this payload.</div>
           </div>
         </div>
+
+        <!-- Feedback Loop -->
+        <div class="feedback-section">
+          <h3>Active Learning Loop</h3>
+          <p class="info-text" style="margin-bottom: 10px;">Did the model make a mistake? Help retrain the pipeline.</p>
+          <div class="feedback-controls">
+            <button id="btn-feedback-fp" class="cyber-btn sm variant-safe">Flag as False Positive (Actually Safe)</button>
+            <button id="btn-feedback-fn" class="cyber-btn sm variant-danger">Flag as False Negative (Actually Phishing)</button>
+          </div>
+        </div>
+
       </section>
     </main>
+  </div>
+
+  <!-- Safe Preview Modal -->
+  <div id="preview-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <h2><span id="modal-title-icon">🔍</span> Safe Preview</h2>
+        <button id="close-modal" class="close-btn">&times;</button>
+      </div>
+      <div id="modal-alert" class="modal-alert hidden">
+        <span class="alert-icon">⚠️</span>
+        <div class="alert-content">
+          <span class="alert-title">UNSAFE CONTENT DETECTED!</span>
+          <span class="alert-text">This payload has been flagged as high risk. Do not interact with links or attachments.</span>
+        </div>
+      </div>
+      <div class="preview-scroll-area">
+        <pre id="preview-body" class="preview-body"></pre>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

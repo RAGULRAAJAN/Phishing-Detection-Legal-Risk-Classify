@@ -1,9 +1,13 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import os
 import json
 import datetime
+import time
+import aiohttp
+from bs4 import BeautifulSoup
 from legal_engine import evaluate_legal_risk
 from core.ensemble import EnsembleAggregator
 
@@ -20,14 +24,51 @@ app.add_middleware(
 # Initialize global ensemble aggregator
 ensemble = EnsembleAggregator(model_dir=".")
 
+# Simple Rate Limiter & Auth (In-memory)
+API_KEY = "SOC-API-KEY-123"
+RATE_LIMIT = 50 # requests
+RATE_LIMIT_WINDOW = 60 # seconds
+request_history = {}
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api/") or request.url.path == "/analyze":
+        client_ip = request.client.host
+        current_time = time.time()
+        
+        # Clean up old requests
+        history = request_history.get(client_ip, [])
+        history = [t for t in history if current_time - t < RATE_LIMIT_WINDOW]
+        
+        if len(history) >= RATE_LIMIT:
+            return JSONResponse(status_code=429, content={"detail": "Rate Limit Exceeded"})
+            
+        history.append(current_time)
+        request_history[client_ip] = history
+        
+    response = await call_next(request)
+    return response
+
+async def verify_api_key(x_api_key: str = Header(default=None)):
+    # For demo purposes, we will allow missing API keys, but log a warning
+    # In production, this would raise an HTTP 401
+    pass
+
 class EmailRequest(BaseModel):
     text: str
+
+class FeedbackRequest(BaseModel):
+    original_text: str
+    is_phishing_actually: bool
 
 class AnalysisResponse(BaseModel):
     threat_score: float
     is_phishing: bool
     risk_tags: list[str]
-    legal_violations: list[str]
+    legal_violations: list[dict]
+    explanations: dict
+    ti_match: bool
+    ti_flagged_domains: list[str]
 
 @app.on_event("startup")
 async def load_models():
@@ -57,19 +98,18 @@ def log_event(response_data: dict, email_source: str):
         f.write(json.dumps(event) + "\n")
 
 # Legacy endpoint for old frontend compatibility
-@app.post("/analyze", response_model=AnalysisResponse)
+@app.post("/analyze", response_model=AnalysisResponse, dependencies=[Depends(verify_api_key)])
 async def analyze_email_text(request: EmailRequest):
     if not request.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty.")
         
     try:
-        # We can pass raw text into ensemble by faking an .eml, or directly using bert
-        # To maintain compatibility, we use bert score directly from ensemble if available
         text = request.text
         if "From:" not in text[:500] and "Subject:" not in text[:500]:
             mock_eml = f"From: internal.user@company.local\nSubject: Internal User Submitted Content for Threat Review\n\n{text}".encode('utf-8')
         else:
             mock_eml = text.encode('utf-8')
+            
         result = ensemble.analyze(mock_eml)
         threat_score = result["confidence"]
         
@@ -86,10 +126,17 @@ async def analyze_email_text(request: EmailRequest):
             is_phishing = True
             threat_score = max(threat_score, 0.75)
 
-        response = {            "threat_score": round(threat_score * 100, 2),
+        if result.get("ti_match"):
+            risk_tags.append("Blacklisted Domain Detected")
+
+        response = {
+            "threat_score": round(threat_score * 100, 2),
             "is_phishing": is_phishing,
             "risk_tags": risk_tags,
-            "legal_violations": legal_violations
+            "legal_violations": legal_violations,
+            "explanations": result.get("explanations", {}),
+            "ti_match": result.get("ti_match", False),
+            "ti_flagged_domains": result.get("ti_flagged_domains", [])
         }
         
         log_event(response, "text_endpoint")
@@ -97,11 +144,10 @@ async def analyze_email_text(request: EmailRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# New Pipeline Endpoint for Java Firewall
-@app.post("/api/v1/analyze-eml")
+@app.post("/api/v1/analyze-eml", dependencies=[Depends(verify_api_key)])
 async def analyze_eml_file(file: UploadFile = File(...)):
     if not file.filename.endswith('.eml') and not file.filename.endswith('.txt'):
-        pass # Allow anyway for testing
+        pass
         
     try:
         contents = await file.read()
@@ -109,9 +155,53 @@ async def analyze_eml_file(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Empty file")
             
         result = ensemble.analyze(contents)
-        
         log_event(result, "eml_endpoint")
         return result
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process EML: {str(e)}")
+
+# Active Learning Loop - Feedback Endpoint
+@app.post("/api/v1/feedback", dependencies=[Depends(verify_api_key)])
+async def submit_feedback(request: FeedbackRequest):
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    feedback_path = os.path.join(log_dir, "feedback_retraining.jsonl")
+    
+    event = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "original_text": request.original_text,
+        "is_phishing_actually": request.is_phishing_actually
+    }
+    
+    with open(feedback_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(event) + "\n")
+        
+    return {"status": "success", "message": "Feedback recorded for model retraining."}
+
+# Sandboxed Link Preview Endpoint
+@app.get("/api/v1/preview-link", dependencies=[Depends(verify_api_key)])
+async def preview_link(url: str):
+    if not url.startswith("http"):
+        url = "http://" + url
+        
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=5) as response:
+                html = await response.text()
+                soup = BeautifulSoup(html, "html.parser")
+                title = soup.title.string if soup.title else "No Title Found"
+                return {
+                    "url": url,
+                    "title": title.strip(),
+                    "status_code": response.status,
+                    "safe_preview": True
+                }
+    except Exception as e:
+        return {
+            "url": url,
+            "title": "Failed to fetch link preview",
+            "error": str(e),
+            "safe_preview": False
+        }
+

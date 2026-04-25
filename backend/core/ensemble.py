@@ -3,6 +3,15 @@ from models.bert_classifier import BERTPhishingClassifier
 from models.anomaly_detector import IsolationForestAnomalyDetector
 from core.feature_extraction import extract_features_from_eml
 
+# Mock Threat Intelligence Blacklist (e.g., PhishTank, Google Safe Browsing)
+TI_BLACKLIST = {
+    "secure-login-update-account.com",
+    "apple-id-verify-alert.net",
+    "paypal-resolution-center.info",
+    "free-giftcard-giveaway.xyz",
+    "evil-phishing-domain.com"
+}
+
 class EnsembleAggregator:
     def __init__(self, model_dir="."):
         self.rf = RFPhishingClassifier(model_path=f"{model_dir}/rf_model.pkl")
@@ -22,29 +31,40 @@ class EnsembleAggregator:
         # 1. Feature Extraction
         features_dict = extract_features_from_eml(eml_bytes)
         body_text = features_dict.get("body_text", "")
+        extracted_domains = features_dict.get("extracted_domains", [])
         
-        # 2. Base Predictions
+        # 2. Threat Intel Lookup
+        ti_match = False
+        ti_flagged_domains = []
+        for domain in extracted_domains:
+            if domain in TI_BLACKLIST:
+                ti_match = True
+                ti_flagged_domains.append(domain)
+        
+        # 3. Base Predictions
         rf_score, explanations = self.rf.predict(features_dict) if self.rf_loaded else (0.5, {})
         bert_score = self.bert.predict(body_text) if self.bert_loaded else 0.5
         is_anomaly = self.iforest.predict(features_dict) if self.iforest_loaded else False
         
-        # 3. Aggregation Logic
+        # 4. Aggregation Logic
         # Weights: 60% RF, 40% BERT
         final_score = (rf_score * 0.60) + (bert_score * 0.40)
         
-        # 4. Trusted Domain Bonus
-        # If the sender is from a highly trusted domain and we haven't found structural mismatches
+        # If Threat Intel flagged a domain, elevate the score to CRITICAL
+        if ti_match:
+            final_score = max(final_score, 0.95)
+            
+        # 5. Trusted Domain Bonus
         trusted_domains = ["flipkart.com", "amazon.in", "google.com", "microsoft.com", "apple.com", "github.com"]
         sender_email = features_dict.get("sender_email", "")
         sender_domain = sender_email.split("@")[-1].lower() if "@" in sender_email else ""
         
-        # Helper to get base domain (already in feature extraction but we use it here too)
         def get_base(d):
             parts = d.split(".")
             return ".".join(parts[-2:]) if len(parts) >= 2 else d
 
         if get_base(sender_domain) in trusted_domains:
-            if features_dict.get("FrequentDomainNameMismatch", 0) == 0:
+            if features_dict.get("FrequentDomainNameMismatch", 0) == 0 and not ti_match:
                 # Apply a reputation bonus, but don't completely clear a high-confidence threat
                 if final_score < 0.8:
                     final_score -= 0.20
@@ -64,6 +84,8 @@ class EnsembleAggregator:
                 "isolation_forest_anomaly": is_anomaly
             },
             "explanations": explanations,
+            "ti_match": ti_match,
+            "ti_flagged_domains": ti_flagged_domains,
             "extracted_features": {
                 "PctExtHyperlinks": features_dict.get("PctExtHyperlinks"),
                 "FrequentDomainNameMismatch": features_dict.get("FrequentDomainNameMismatch"),

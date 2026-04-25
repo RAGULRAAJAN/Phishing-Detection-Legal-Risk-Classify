@@ -89,6 +89,7 @@ def extract_features_from_parts(sender: str, subject: str, body_text: str, html_
     features["total_links"] = float(total_hyperlinks)
     features["body_text"] = body_text
     features["sender_email"] = sender_email
+    features["extracted_domains"] = domains # Added for Threat Intel
     
     return features
 

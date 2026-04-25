@@ -139,7 +139,7 @@ if __name__ == "__main__":
         # 1. Load Real data
         X_full, y = load_real_data(csv_file)
         # Separate body text for BERT, and structural features for RF
-        X_structural = X_full.drop(columns=["body_text", "sender_email"])
+        X_structural = X_full.drop(columns=["body_text", "sender_email", "extracted_domains"])
         
         # 2. Train RF
         train_random_forest(X_structural, y, savedir=save_directory)
