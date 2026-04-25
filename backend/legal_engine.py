@@ -10,10 +10,8 @@ def evaluate_legal_risk(text: str, threat_score: float) -> tuple[list[str], list
 
     text_lower = text.lower()
 
-    # Only map legal violations if the threat score is reasonably high 
-    # to avoid false positives on casual conversations.
-    if threat_score < 0.40:
-        return risk_tags, legal_violations
+    # We evaluate legal violations regardless of the ML threat score 
+    # to catch rule-based risks that the ML might have missed.
 
     # 1. Identity Theft / IT Act 66C
     # Looks for credential harvesting attempts.

@@ -32,13 +32,26 @@ class EnsembleAggregator:
         # Weights: 60% RF, 40% BERT
         final_score = (rf_score * 0.60) + (bert_score * 0.40)
         
-        # Isolation forest boosts score if anomaly detected
-        if is_anomaly:
-            final_score += 0.15
-            
-        final_score = min(final_score, 1.0) # Cap at 1.0
+        # 4. Trusted Domain Bonus
+        # If the sender is from a highly trusted domain and we haven't found structural mismatches
+        trusted_domains = ["flipkart.com", "amazon.in", "google.com", "microsoft.com", "apple.com", "github.com"]
+        sender_email = features_dict.get("sender_email", "")
+        sender_domain = sender_email.split("@")[-1].lower() if "@" in sender_email else ""
         
-        BLOCK_THRESHOLD = 0.65
+        # Helper to get base domain (already in feature extraction but we use it here too)
+        def get_base(d):
+            parts = d.split(".")
+            return ".".join(parts[-2:]) if len(parts) >= 2 else d
+
+        if get_base(sender_domain) in trusted_domains:
+            if features_dict.get("FrequentDomainNameMismatch", 0) == 0:
+                # Apply a reputation bonus, but don't completely clear a high-confidence threat
+                if final_score < 0.8:
+                    final_score -= 0.20
+                
+        final_score = max(0.0, min(final_score, 1.0)) # Clamp between 0 and 1
+        
+        BLOCK_THRESHOLD = 0.50
         action = "block" if final_score > BLOCK_THRESHOLD else "allow"
         
         return {
@@ -55,6 +68,7 @@ class EnsembleAggregator:
                 "PctExtHyperlinks": features_dict.get("PctExtHyperlinks"),
                 "FrequentDomainNameMismatch": features_dict.get("FrequentDomainNameMismatch"),
                 "PctExtNullSelfRedirectHyperlinksRT": features_dict.get("PctExtNullSelfRedirectHyperlinksRT"),
-                "total_links": features_dict.get("total_links")
+                "total_links": features_dict.get("total_links"),
+                "body_text": features_dict.get("body_text", "")
             }
         }

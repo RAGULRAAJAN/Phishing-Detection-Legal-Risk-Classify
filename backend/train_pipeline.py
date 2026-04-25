@@ -103,23 +103,65 @@ def train_bert_mock(savedir="."):
     model.save_pretrained(f"{savedir}/bert_model_dir")
     print("BERT model saved.")
 
+def load_real_data(csv_path):
+    print(f"Loading real data from {csv_path}...")
+    df = pd.read_csv(csv_path)
+    
+    # 0 = Ham, 1 = Phishing
+    y = df["label"].values
+    
+    print("Extracting features from dataset records...")
+    features_list = []
+    
+    from core.feature_extraction import extract_features_from_parts
+    for idx, row in df.iterrows():
+        # Columns: sender, receiver, date, subject, body, label, urls
+        body = str(row.get("body", ""))
+        subject = str(row.get("subject", ""))
+        sender = str(row.get("sender", ""))
+        
+        # Use our unified feature extractor
+        feat = extract_features_from_parts(sender, subject, body)
+        features_list.append(feat)
+        
+        if idx % 1000 == 0 and idx > 0:
+            print(f"  Processed {idx} records...")
+
+    X = pd.DataFrame(features_list)
+    return X, y
+
 if __name__ == "__main__":
     print("--- Phishing ML Pipeline Bootstrapper ---")
-    
-    # Make models directory if not exists, but we are running in backend so current dir is fine
-    # Actually wait, main.py is in backend, so saving in backend/ is appropriate
     save_directory = "." 
     
-    # 1. Gen mock data
-    X, y = generate_mock_data(n_samples=500)
-    
-    # 2. RF
-    train_random_forest(X, y, savedir=save_directory)
-    
-    # 3. IF
-    train_isolation_forest(X, savedir=save_directory)
-    
-    # 4. BERT
-    # train_bert_mock(savedir=save_directory)
+    csv_file = "CEAS_08.csv"
+    if os.path.exists(csv_file):
+        # 1. Load Real data
+        X_full, y = load_real_data(csv_file)
+        # Separate body text for BERT, and structural features for RF
+        X_structural = X_full.drop(columns=["body_text", "sender_email"])
+        
+        # 2. Train RF
+        train_random_forest(X_structural, y, savedir=save_directory)
+        
+        # 3. Train IF
+        train_isolation_forest(X_structural, savedir=save_directory)
+        
+        # 4. BERT (Optional - taking a subset for speed)
+        # Uncomment below if you want to fine-tune BERT on real data
+        # print("Training BERT on real data subset...")
+        # (This would require more GPU/Time)
+        
+        # We call the mock/fast initialization to ensure the directory exists and weights are stable.
+        train_bert_mock(save_directory)
+        
+    else:
+        print(f"Real data {csv_file} not found. Falling back to mock data.")
+        # 1. Gen mock data
+        X_mock, y_mock = generate_mock_data(n_samples=500)
+        # 2. RF
+        train_random_forest(X_mock, y_mock, savedir=save_directory)
+        # 3. IF
+        train_isolation_forest(X_mock, savedir=save_directory)
     
     print("Pipeline training completed successfully!")

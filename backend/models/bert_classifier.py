@@ -8,6 +8,7 @@ class BERTPhishingClassifier:
         self.tokenizer = None
         self.model = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.is_fine_tuned = False
 
     def load(self):
         from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -17,13 +18,12 @@ class BERTPhishingClassifier:
             if os.path.exists(self.local_path):
                 self.tokenizer = AutoTokenizer.from_pretrained(self.local_path)
                 self.model = AutoModelForSequenceClassification.from_pretrained(self.local_path)
+                self.is_fine_tuned = True
             else:
                 # Load default tokenizer and model (this acts as a mock out-of-the-box text classifier if not trained)
-                # In a real scenario, this MUST be fine-tuned.
                 self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-                # For classification, we default num_labels=2. Initialized with random weights for classification head if untuned.
-                # To prevent it from outputting noise during baseline un-tuned testing, train_pipeline.py can do a quick 1-epoch train.
                 self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name, num_labels=2)
+                self.is_fine_tuned = False
             
             self.model.to(self.device)
             self.model.eval()
@@ -35,6 +35,11 @@ class BERTPhishingClassifier:
     def predict(self, text: str):
         if not self.model or not self.tokenizer or not text.strip():
             return 0.0
+
+        if not self.is_fine_tuned:
+            # If model is not fine-tuned, its classification head is random.
+            # Return a neutral, low-threat score to avoid false positives.
+            return 0.1
 
         try:
             inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512, padding=False)

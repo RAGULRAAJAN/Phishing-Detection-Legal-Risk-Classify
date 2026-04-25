@@ -41,21 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
       let content = event.target.result;
 
       if (file.name.endsWith('.eml')) {
-        // Very basic inline parsing for generic EML display
-        // Since we are in the browser, we use regex to extract key fields easily
-        const subjectMatch = content.match(/^Subject:\s*(.*)$/im);
-        const fromMatch = content.match(/^From:\s*(.*)$/im);
-
-        let parsed = "";
-        if (subjectMatch) parsed += `Subject: ${subjectMatch[1]}\n`;
-        if (fromMatch) parsed += `From: ${fromMatch[1]}\n\n`;
-
-        // Find boundary to extract plain text if multipart
-        // Alternatively, just dump the whole text since the backend handles raw text
-        // Dumping the whole text is safer to preserve all risk indicators
-        parsed += "\n[Raw Source Below]\n\n" + content;
-
-        textArea.value = parsed.substring(0, 5000); // truncate if massive
+        textArea.value = content.substring(0, 50000); // Allow larger payload
       } else {
         textArea.value = content;
       }

@@ -65,17 +65,28 @@ async def analyze_email_text(request: EmailRequest):
     try:
         # We can pass raw text into ensemble by faking an .eml, or directly using bert
         # To maintain compatibility, we use bert score directly from ensemble if available
-        mock_eml = f"Subject: None\n\n{request.text}".encode('utf-8')
+        text = request.text
+        if "From:" not in text[:500] and "Subject:" not in text[:500]:
+            mock_eml = f"From: internal.user@company.local\nSubject: Internal User Submitted Content for Threat Review\n\n{text}".encode('utf-8')
+        else:
+            mock_eml = text.encode('utf-8')
         result = ensemble.analyze(mock_eml)
         threat_score = result["confidence"]
         
-        THRESHOLD = float(os.environ.get("THREAT_THRESHOLD", 0.3))
+        THRESHOLD = float(os.environ.get("THREAT_THRESHOLD", 0.65))
         is_phishing = bool(threat_score > THRESHOLD)
-        
-        risk_tags, legal_violations = evaluate_legal_risk(request.text, threat_score)
-        
-        response = {
-            "threat_score": round(threat_score * 100, 2),
+
+        body_text = result.get("extracted_features", {}).get("body_text", request.text)
+        if not body_text.strip():
+            body_text = request.text
+
+        risk_tags, legal_violations = evaluate_legal_risk(body_text, threat_score)
+
+        if legal_violations:
+            is_phishing = True
+            threat_score = max(threat_score, 0.75)
+
+        response = {            "threat_score": round(threat_score * 100, 2),
             "is_phishing": is_phishing,
             "risk_tags": risk_tags,
             "legal_violations": legal_violations
