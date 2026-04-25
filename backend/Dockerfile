@@ -11,8 +11,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy source code
 COPY . .
 
-# Train the mock model to generate phishing_model.pkl
-RUN python train_model.py
+# Train the mock model to generate models
+RUN python train_pipeline.py
 
 # Expose port
 EXPOSE 8000
