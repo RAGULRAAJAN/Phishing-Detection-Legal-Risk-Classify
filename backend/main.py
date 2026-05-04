@@ -82,16 +82,15 @@ async def load_models():
     if not ensemble.iforest_loaded:
         print("Warning: Isolation Forest not loaded.")
 
-def log_event(response_data: dict, email_source: str):
+def log_event(event_data: dict, event_type: str = "phishing_analysis"):
     log_dir = "logs"
     os.makedirs(log_dir, exist_ok=True)
     log_path = os.path.join(log_dir, "security_events.log")
     
     event = {
         "timestamp": datetime.datetime.now().isoformat(),
-        "event_type": "phishing_analysis",
-        "input": "text_or_eml_snippet",
-        "results": response_data
+        "event_type": event_type,
+        "details": event_data
     }
     
     with open(log_path, "a", encoding="utf-8") as f:
@@ -113,6 +112,9 @@ async def analyze_email_text(request: EmailRequest):
         result = ensemble.analyze(mock_eml)
         threat_score = result["confidence"]
         
+        # Check if this result is from a human feedback override
+        has_human_override = "human_feedback" in result.get("explanations", {})
+        
         THRESHOLD = float(os.environ.get("THREAT_THRESHOLD", 0.65))
         is_phishing = bool(threat_score > THRESHOLD)
 
@@ -120,9 +122,10 @@ async def analyze_email_text(request: EmailRequest):
         if not body_text.strip():
             body_text = request.text
 
+        # If it's a human override, we might still want to see legal tags but NOT force is_phishing=True
         risk_tags, legal_violations = evaluate_legal_risk(body_text, threat_score)
 
-        if legal_violations:
+        if legal_violations and not has_human_override:
             is_phishing = True
             threat_score = max(threat_score, 0.75)
 
@@ -139,10 +142,20 @@ async def analyze_email_text(request: EmailRequest):
             "ti_flagged_domains": result.get("ti_flagged_domains", [])
         }
         
-        log_event(response, "text_endpoint")
+        log_event(response, "phishing_analysis")
         return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/simulate-execution", dependencies=[Depends(verify_api_key)])
+async def simulate_execution(payload: dict):
+    """
+    Simulates a malware execution event for IR lab training.
+    Payload should include 'source_ip', 'process_name', 'action'.
+    """
+    event_type = payload.get("event_type", "sysmon_event")
+    log_event(payload, event_type)
+    return {"status": "event_logged", "event_type": event_type}
 
 @app.post("/api/v1/analyze-eml", dependencies=[Depends(verify_api_key)])
 async def analyze_eml_file(file: UploadFile = File(...)):
@@ -176,8 +189,11 @@ async def submit_feedback(request: FeedbackRequest):
     
     with open(feedback_path, "a", encoding="utf-8") as f:
         f.write(json.dumps(event) + "\n")
+    
+    # Refresh overrides in the running ensemble instance
+    ensemble._load_feedback_overrides()
         
-    return {"status": "success", "message": "Feedback recorded for model retraining."}
+    return {"status": "success", "message": "Feedback recorded. Model behavior updated immediately via Active Learning override."}
 
 # Sandboxed Link Preview Endpoint
 @app.get("/api/v1/preview-link", dependencies=[Depends(verify_api_key)])
@@ -204,4 +220,3 @@ async def preview_link(url: str):
             "error": str(e),
             "safe_preview": False
         }
-
